@@ -4,8 +4,10 @@ import { ObjectId } from "mongodb";
 import { collections } from "@/lib/mongo";
 import { requireEmployee } from "@/auth";
 import { verifyQrToken } from "@/lib/qr";
-import { CHECKIN_RATE_LIMIT, DUPLICATE_SCAN_WINDOW_MIN } from "@/lib/constants";
-import { computeDay, getDayCheckIns, materializeDay, nowDateKey } from "@/attend/service";
+import { CHECKIN_RATE_LIMIT, DUPLICATE_SCAN_WINDOW_MIN, OFFICE_CONFIGURED, OFFICE_LAT, OFFICE_LNG, OFFICE_RADIUS_M } from "@/lib/constants";
+import { computeDay, getEffectiveShift, getWorkingDayScans, materializeDay, nowDateKey } from "@/attend/service";
+import { isOvernightShift } from "@/attend/status";
+import { hhmmToMinutes, workingDateForScan } from "@/lib/time";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -19,6 +21,17 @@ async function allowRate(key: string): Promise<boolean> {
   return (res?.count ?? CHECKIN_RATE_LIMIT + 1) <= CHECKIN_RATE_LIMIT;
 }
 
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6_371_000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function POST(request: Request) {
   let user;
   try {
@@ -30,11 +43,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "no active employee record for this email", code: "no_employee" }, { status: 403 });
   }
 
-  const body = (await request.json().catch(() => ({}))) as { token?: string; device_token?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    token?: string;
+    device_token?: string;
+    lat?: number;
+    lng?: number;
+    accuracy?: number;
+  };
   const { token, device_token } = body;
   if (!token || !device_token) {
     return NextResponse.json({ error: "token and device_token required", code: "bad_request" }, { status: 400 });
   }
+  const lat = Number(body.lat);
+  const lng = Number(body.lng);
+  const accuracy = body.accuracy != null ? Number(body.accuracy) : undefined;
+  const hasLocation = Number.isFinite(lat) && Number.isFinite(lng);
 
   try {
     // 1. QR signature + expiry (45s) — proves presence at the kiosk.
@@ -55,6 +78,26 @@ export async function POST(request: Request) {
     }
     if (device.status !== "approved") {
       return NextResponse.json({ error: "device not approved by admin", code: "device_pending" }, { status: 403 });
+    }
+
+    // 2b. Location — QR proves presence at the kiosk, GPS proves the phone is at the office.
+    let distanceM: number | null = null;
+    if (OFFICE_CONFIGURED) {
+      if (!hasLocation) {
+        return NextResponse.json(
+          { error: "location unavailable — enable location access and retry", code: "location_missing" },
+          { status: 403 },
+        );
+      }
+      distanceM = haversineMeters(lat, lng, OFFICE_LAT, OFFICE_LNG);
+      if (distanceM > OFFICE_RADIUS_M) {
+        return NextResponse.json(
+          { error: "scan outside office area", code: "outside_geofence", distance_m: Math.round(distanceM) },
+          { status: 403 },
+        );
+      }
+    } else if (hasLocation) {
+      distanceM = null;
     }
 
     // 3. Per-device rate limit, bucketed per 5-minute window (Atlas-backed TTL counter).
@@ -84,10 +127,25 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "duplicate scan ignored", code: "duplicate", ignored: true }, { status: 202 });
     }
 
-    // 6. First scan of the day = check-in; any later scan = (overrides) check-out.
+    // 6. First scan of the working-day = check-in; any later scan = (overrides) check-out.
+    //    For overnight shifts the working-day is the previous calendar date when the
+    //    scan happens before shift start (e.g. a next-morning checkout).
     const today = nowDateKey();
-    const todayCount = (await getDayCheckIns(employee._id, today)).length;
-    const kind: "in" | "out" = todayCount === 0 ? "in" : "out";
+    const eff = await getEffectiveShift({ shift_id: employee.shift_id }, today);
+    const startMin = eff.override
+      ? hhmmToMinutes(eff.override.start_time)
+      : eff.shift
+        ? hhmmToMinutes(eff.shift.start_time)
+        : 0;
+    const endMin = eff.override
+      ? hhmmToMinutes(eff.override.end_time)
+      : eff.shift
+        ? hhmmToMinutes(eff.shift.end_time)
+        : 0;
+    const overnight = eff.shift ? isOvernightShift(startMin, endMin) : false;
+    const workDate = eff.shift ? workingDateForScan(startMin, overnight, now) : today;
+    const workScans = await getWorkingDayScans(employee._id, workDate, startMin, overnight);
+    const kind: "in" | "out" = workScans.length === 0 ? "in" : "out";
 
     await collections().checkIns.insertOne({
       _id: new ObjectId(),
@@ -95,18 +153,28 @@ export async function POST(request: Request) {
       ts: now,
       kind,
       token_jti: payload.jti,
-      meta: {},
+      meta: hasLocation
+        ? {
+            location: {
+              lat,
+              lng,
+              ...(accuracy != null && Number.isFinite(accuracy) ? { accuracy } : {}),
+              ...(distanceM != null ? { distance_m: Math.round(distanceM) } : {}),
+              at: now.toISOString(),
+            },
+          }
+        : {},
       device_token,
     });
 
-    // 7. Refresh the live daily_status for today.
-    const computed = await computeDay(employee, today);
+    // 7. Refresh the live daily_status for the affected working-day.
+    const computed = await computeDay(employee, workDate);
     await materializeDay(computed);
 
     return NextResponse.json({
       ok: true,
       kind,
-      date: today,
+      date: workDate,
       checkedAt: now.toISOString(),
       status: computed.output.status,
       message: kind === "in" ? "Checked in" : "Checked out",

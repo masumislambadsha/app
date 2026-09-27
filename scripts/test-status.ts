@@ -1,6 +1,11 @@
 // Runs with: node scripts/test-status.ts (Node 20.11+ type stripping)
 // Covers §15 acceptance tests #1/#2/#3 logic at the pure-function level.
-import { resolveDayStatus } from "../src/attend/status.ts";
+import {
+  anchorShiftMinute,
+  isOvernightShift,
+  resolveDayStatus,
+  wrappedEndMin,
+} from "../src/attend/status.ts";
 
 // Shift 9:00-18:00, grace 10, half-day threshold 60, early-exit 60 (before 17:00)
 const shift = { startMin: 9 * 60, endMin: 18 * 60, graceMin: 10, halfDayAfterMin: 60, earlyExitMin: 60 };
@@ -44,6 +49,19 @@ console.log("§5 — override behaviour with shift override (Ramadan 9:00-15:00)
 const ramadanShift = { ...shift, endMin: 15 * 60 };
 eq("early exit vs 15:00 end not flagged at 14:30", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 9 * 60, checkOutMin: 14 * 60 + 30, shift: ramadanShift }).flag, null);
 eq("manual override wins", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 9 * 60, checkOutMin: 18 * 60, shift, manualStatus: "absent" }).status, "absent");
+
+console.log("§5 — night shift (22:00->06:00) helpers + status");
+eq("22:00->06:00 detected as overnight", isOvernightShift(22 * 60, 6 * 60), true);
+eq("09:00->18:00 not overnight", isOvernightShift(9 * 60, 18 * 60), false);
+eq("wrapped end = 1800", wrappedEndMin(22 * 60, 6 * 60), 6 * 60 + 24 * 60);
+eq("next-morning 06:05 anchors to 1805", anchorShiftMinute(22 * 60, true, 6 * 60 + 5), 6 * 60 + 24 * 60 + 5);
+eq("same-evening 22:05 anchors to 1325", anchorShiftMinute(22 * 60, true, 22 * 60 + 5), 22 * 60 + 5);
+const nightShift = { startMin: 22 * 60, endMin: 6 * 60 + 24 * 60, graceMin: 10, halfDayAfterMin: 60, earlyExitMin: 60 };
+eq("night on-time in+out present", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 22 * 60, checkOutMin: 6 * 60 + 24 * 60, shift: nightShift }).status, "present");
+eq("night on-time checkout no flag", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 22 * 60, checkOutMin: 6 * 60 + 24 * 60, shift: nightShift }).flag, null);
+eq("night late after grace (22:30)", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 22 * 60 + 30, checkOutMin: 6 * 60 + 24 * 60, shift: nightShift }).status, "late");
+eq("night early-exit at 04:30", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 22 * 60, checkOutMin: 4 * 60 + 30 + 24 * 60, shift: nightShift }).flag, "early_exit");
+eq("night missing checkout when no scan out", resolveDayStatus({ weekday: 1, isHoliday: false, isWeeklyOff: false, isApprovedLeave: false, checkInMin: 22 * 60, checkOutMin: null, shift: nightShift }).flag, "missing_checkout");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

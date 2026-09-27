@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { cn } from "cn";
 
 const REFRESH_MS = 30_000;
 
@@ -12,9 +13,13 @@ export default function KioskDisplay() {
   useEffect(() => {
     let alive = true;
 
-    const tick = async () => {
+    const tick = async (): Promise<void> => {
       try {
-        const res = await fetch("/api/kiosk/token", { cache: "no-store" });
+        let res = await fetch("/api/kiosk/token", { cache: "no-store" });
+        if (res.status === 401) {
+          await fetch("/api/kiosk/cookie", { cache: "no-store" });
+          res = await fetch("/api/kiosk/token", { cache: "no-store" });
+        }
         if (!res.ok) throw new Error("could not reach token service");
         const data = (await res.json()) as { qr: string; expiresAt: string };
         if (!alive) return;
@@ -38,34 +43,41 @@ export default function KioskDisplay() {
   }, []);
 
   return (
-    <div className="flex flex-col items-center gap-6 text-center">
+    <div className="flex w-full max-w-md flex-col items-center gap-6 text-center">
       <div>
-        <h2 className="text-sm font-medium uppercase tracking-widest text-slate-400">Scan to check in / out</h2>
-        <p className="mt-1 text-xs text-slate-500">
+        <h2 className="font-serif text-2xl font-bold tracking-tight text-[#1a1a1a]">
+          Scan to check in / out
+        </h2>
+        <p className="mt-1 text-xs text-muted-foreground">
           Code refreshes every {REFRESH_MS / 1000}s — sharing a photo will not work.
         </p>
       </div>
 
-      <div className="relative rounded-2xl border border-slate-800 bg-white p-6 shadow-2xl">
+      <div className="relative w-full rounded-[2rem] border border-warm-100 bg-white p-6 shadow-2xl shadow-black/[0.05]">
         {qr ? (
-          <img src={qr} alt="Scan this QR with the attendance app" className="h-72 w-72" draggable={false} />
+          <img src={qr} alt="Scan this QR with the attendance app" className="h-72 w-full object-contain" draggable={false} />
         ) : (
-          <div className="flex h-72 w-72 items-center justify-center text-slate-400">
+          <div className="flex h-72 w-full items-center justify-center text-muted-foreground">
             {error ?? "Loading…"}
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 flex justify-center translate-y-1/2">
           <span
-            className="rounded-full border border-slate-800 bg-slate-900 px-3 py-1 text-xs font-semibold text-sky-300"
+            className={cn(
+              "inline-flex items-center rounded-full bg-[#1a1a1a] px-4 py-1.5 text-xs font-semibold text-warm-50",
+              expiresIn <= 10 && "bg-amber-500",
+            )}
             aria-live="polite"
           >
-            {expiresIn}s
+            QR expires in {expiresIn}s
           </span>
         </div>
       </div>
 
-      {error && <p className="text-sm text-amber-400">{error}</p>}
-      <p className="text-xs text-slate-600">Attendance kiosk · {new Date().toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}</p>
+      {error && <p className="text-sm font-medium text-amber-700">{error}</p>}
+      <p className="text-xs text-muted-foreground">
+        Attendance kiosk · {new Date().toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}
+      </p>
     </div>
   );
 }

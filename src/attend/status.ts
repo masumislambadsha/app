@@ -43,6 +43,28 @@ export interface DayOutput {
   flag: OversightFlag;
 }
 
+/** A shift that wraps past midnight (end time is earlier than start time on the clock). */
+export function isOvernightShift(startMin: number, endMin: number): boolean {
+  return endMin < startMin;
+}
+
+/**
+ * End of the shift in minutes measured from the shift-start day's midnight.
+ * Overnight shifts (e.g. 22:00->06:00) land past 24:00 (1320 -> 1800).
+ */
+export function wrappedEndMin(startMin: number, endMin: number): number {
+  return isOvernightShift(startMin, endMin) ? endMin + 24 * 60 : endMin;
+}
+
+/**
+ * A scan's minute aligned to the shift-start day's midnight. For overnight
+ * shifts, scans that happened before shift start (i.e. after midnight on the
+ * following day, like a 06:00 checkout) are advanced onto the next day.
+ */
+export function anchorShiftMinute(startMin: number, overnight: boolean, timeOfDay: number): number {
+  return overnight && timeOfDay < startMin ? timeOfDay + 24 * 60 : timeOfDay;
+}
+
 export function resolveDayStatus(input: DayInput): DayOutput {
   if (input.manualStatus) {
     return { status: input.manualStatus, lateMin: 0, flag: null };

@@ -7,6 +7,11 @@ export const CRON_SECRET = process.env.CRON_SECRET ?? "";
 export const KIOSK_KEY = process.env.KIOSK_KEY ?? "";
 export const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? "";
 
+export const OFFICE_LAT = Number(process.env.OFFICE_LAT ?? NaN);
+export const OFFICE_LNG = Number(process.env.OFFICE_LNG ?? NaN);
+export const OFFICE_RADIUS_M = Number(process.env.OFFICE_RADIUS_M ?? 150);
+export const OFFICE_CONFIGURED = Number.isFinite(OFFICE_LAT) && Number.isFinite(OFFICE_LNG);
+
 export function currentQrSecret(): string {
   const s = process.env.QR_SECRET_CURRENT;
   if (!s) throw new Error("QR_SECRET_CURRENT is not set");

@@ -8,7 +8,10 @@ import type { Role } from "./types";
  */
 export async function roleForEmail(email: string): Promise<Role | null> {
   const canonical = email.trim().toLowerCase();
-  if (ADMIN_EMAIL && canonical === ADMIN_EMAIL.trim().toLowerCase()) return "admin";
+  const admins = ADMIN_EMAIL.split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  if (admins.length && admins.includes(canonical)) return "admin";
   const employee = await collections().employees.findOne({
     email: canonical,
     active: true,

@@ -2,9 +2,11 @@ import { collections } from "@/lib/mongo";
 import { requireEmployee } from "@/auth";
 import { getAllLeaveTypes, availableBalance } from "@/attend/leave";
 import { nowDateKey } from "@/attend/service";
-import { Card, ErrorBanner } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, ErrorBanner } from "@/components/ui";
+import { Button } from "@/components/ui/button";
 import { LeaveRequestForm } from "@/components/LeaveRequestForm";
 import { cancelMyLeave } from "@/actions/leave";
+import { cn } from "cn";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Request leave" };
@@ -21,8 +23,10 @@ export default async function MyLeavePage({ searchParams }: Props) {
 
   if (!employee) {
     return (
-      <Card className="m-6 p-6">
-        <p className="text-sm text-amber-300">No active employee record for {user.email}.</p>
+      <Card className="m-6">
+        <CardContent className="p-6">
+          <p className="text-sm font-medium text-amber-700">No active employee record for {user.email}.</p>
+        </CardContent>
       </Card>
     );
   }
@@ -41,40 +45,67 @@ export default async function MyLeavePage({ searchParams }: Props) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Request leave</h1>
+      <h1 className="font-serif text-2xl font-bold tracking-tight text-[#1a1a1a] sm:text-3xl">Request leave</h1>
       <ErrorBanner message={error} />
 
-      <Card className="mt-4 p-4">
-        <h2 className="text-sm font-medium text-slate-300">New request</h2>
-        <LeaveRequestForm types={options} today={today} />
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle className="text-base">New request</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <LeaveRequestForm types={options} today={today} />
+        </CardContent>
       </Card>
 
-      <Card className="mt-4 p-4">
-        <h2 className="font-medium">My open requests</h2>
-        <div className="mt-2 space-y-2">
-          {myRequests.map((r) => (
-            <div key={r._id.toString()} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/60 py-2 text-sm last:border-0">
-              <div>
-                <span className="font-medium">{typeName.get(r.type_id) ?? r.type_id}</span>
-                <span className="ml-2 text-slate-400">
-                  {r.from} → {r.to} {r.half_day ? "(½)" : ""}
-                </span>
-                {r.status === "approved" ? (
-                  <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-xs text-emerald-300">approved</span>
-                ) : (
-                  <span className="ml-2 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-300">pending</span>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>My open requests</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="space-y-2">
+            {myRequests.map((r) => (
+              <div
+                key={r._id.toString()}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-warm-100 py-3 text-sm last:border-0"
+              >
+                <div>
+                  <span className="font-medium">{typeName.get(r.type_id) ?? r.type_id}</span>
+                  <span className="ml-2 text-muted-foreground">
+                    {r.from} → {r.to} {r.half_day ? "(½)" : ""}
+                  </span>
+                  {r.status === "approved" ? (
+                    <span
+                      className={cn(
+                        "ml-2 inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold",
+                        "text-emerald-700",
+                      )}
+                    >
+                      approved
+                    </span>
+                  ) : (
+                    <span
+                      className={cn(
+                        "ml-2 inline-flex items-center rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold",
+                        "text-amber-700",
+                      )}
+                    >
+                      pending
+                    </span>
+                  )}
+                </div>
+                {r.status === "pending" && (
+                  <form action={cancelMyLeave}>
+                    <input type="hidden" name="id" value={r._id.toString()} />
+                    <Button type="submit" variant="ghost" size="sm" className="text-muted-foreground">
+                      Cancel
+                    </Button>
+                  </form>
                 )}
               </div>
-              {r.status === "pending" && (
-                <form action={cancelMyLeave}>
-                  <input type="hidden" name="id" value={r._id.toString()} />
-                  <button className="text-slate-400 underline-offset-2 hover:underline">Cancel</button>
-                </form>
-              )}
-            </div>
-          ))}
-          {myRequests.length === 0 && <p className="text-sm text-slate-500">Nothing open.</p>}
-        </div>
+            ))}
+            {myRequests.length === 0 && <p className="text-sm text-muted-foreground">Nothing open.</p>}
+          </div>
+        </CardContent>
       </Card>
     </div>
   );

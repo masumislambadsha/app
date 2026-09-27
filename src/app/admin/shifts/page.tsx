@@ -1,6 +1,12 @@
 import { collections } from "@/lib/mongo";
 import { saveShift } from "@/actions/admin";
 import { ErrorBanner } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NumberFieldField } from "@/components/ui/number-field";
+import { TimeFieldField } from "@/components/ui/time-field";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Shifts" };
@@ -15,64 +21,106 @@ export default async function AdminShiftsPage({ searchParams }: Props) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Shifts</h1>
+      <h1 className="font-serif text-2xl font-bold tracking-tight text-[#1a1a1a] sm:text-3xl">Shifts</h1>
       <ErrorBanner message={error} />
 
-      <form action={saveShift} className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4">
-        <h2 className="text-sm font-medium text-slate-300">Add / edit shift</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-          <input name="name" required placeholder="Name (e.g. General)" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-          <input name="start_time" type="time" defaultValue="09:00" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-          <input name="end_time" type="time" defaultValue="18:00" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-          <input name="grace_min" type="number" min={0} defaultValue={10} placeholder="Grace (min)" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-          <input name="half_day_after_min" type="number" min={0} defaultValue={60} placeholder="Half-day after" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-          <input name="early_exit_min" type="number" min={0} defaultValue={60} placeholder="Early-exit (min)" className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm" />
-        </div>
-        <button className="mt-3 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium hover:bg-sky-500">Save shift</button>
-      </form>
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Add / edit shift</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form action={saveShift} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            <Input name="name" required placeholder="Name (e.g. Day Shift)" aria-label="Shift name" />
+            <TimeFieldField name="start_time" defaultValue="09:00" ariaLabel="Start time" isRequired />
+            <TimeFieldField name="end_time" defaultValue="18:00" ariaLabel="End time" isRequired />
+            <NumberFieldField
+              name="grace_min"
+              minValue={0}
+              defaultValue={10}
+              placeholder="Grace (min)"
+              ariaLabel="Grace minutes"
+            />
+            <NumberFieldField
+              name="half_day_after_min"
+              minValue={0}
+              defaultValue={60}
+              placeholder="Half-day after"
+              ariaLabel="Half-day after minutes"
+            />
+            <NumberFieldField
+              name="early_exit_min"
+              minValue={0}
+              defaultValue={60}
+              placeholder="Early-exit (min)"
+              ariaLabel="Early exit minutes"
+            />
+            <div className="sm:col-span-2 lg:col-span-6">
+              <Button type="submit">Save shift</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         {shifts.map((s) => (
-          <div key={s._id} className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-medium">{s.name}</h3>
-              <span className="text-sm text-slate-400">{s._id}</span>
-            </div>
-            <p className="mt-2 text-sm text-slate-300">
-              {s.start_time}–{s.end_time} · grace {s.grace_min}m · half-day after {s.half_day_after_min}m · early-exit{" "}
-              {s.early_exit_min}m
-            </p>
-          </div>
+          <Card key={s._id}>
+            <CardContent className="px-4 py-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">{s.name}</h3>
+                <span className="font-mono text-xs text-muted-foreground">{s._id}</span>
+              </div>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {s.start_time}–{s.end_time} · grace {s.grace_min}m · half-day after {s.half_day_after_min}m · early-exit{" "}
+                {s.early_exit_min}m
+                {s.end_time < s.start_time && (
+                  <span className="ml-2 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                    crosses midnight
+                  </span>
+                )}
+              </p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      <h2 className="mt-6 text-lg font-semibold">Shift overrides (Ramadan / seasonal hours)</h2>
-      <p className="text-sm text-slate-400">
+      <h2 className="mt-6 font-serif text-lg font-bold tracking-tight text-[#1a1a1a]">Shift overrides (Ramadan / seasonal hours)</h2>
+      <p className="text-sm text-muted-foreground">
         Overrides are stored by date range. Add them via MongoDB (no UI in v1) — e.g.{" "}
-        <code className="rounded bg-slate-800 px-1 text-xs">shift_overrides</code>.
+        <code className="rounded-lg bg-warm-100 px-1 py-0.5 font-mono text-xs">shift_overrides</code>.
       </p>
-      <div className="mt-2 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase text-slate-400">
-            <tr className="border-b border-slate-800">
-              <th className="px-4 py-2">Shift</th>
-              <th className="px-4 py-2">From</th>
-              <th className="px-4 py-2">To</th>
-              <th className="px-4 py-2">Hours</th>
-            </tr>
-          </thead>
-          <tbody>
-            {overrides.map((o) => (
-              <tr key={o._id.toString()}>
-                <td className="px-4 py-2">{o.shift_id}</td>
-                <td className="px-4 py-2">{o.date_from}</td>
-                <td className="px-4 py-2">{o.date_to}</td>
-                <td className="px-4 py-2">{o.start_time}–{o.end_time}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Card className="mt-2">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Shift</TableHead>
+                <TableHead>From</TableHead>
+                <TableHead>To</TableHead>
+                <TableHead>Hours</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {overrides.map((o) => (
+                <TableRow key={o._id.toString()}>
+                  <TableCell>{o.shift_id}</TableCell>
+                  <TableCell>{o.date_from}</TableCell>
+                  <TableCell>{o.date_to}</TableCell>
+                  <TableCell>
+                    {o.start_time}–{o.end_time}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {overrides.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
+                    No overrides yet.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
     </div>
   );
 }

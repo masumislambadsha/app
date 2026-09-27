@@ -1,22 +1,12 @@
-import { cookies } from "next/headers";
-import { newKioskCookie } from "@/app/api/kiosk/token/route";
 import KioskDisplay from "./KioskDisplay";
 
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Kiosk" };
 
-export default async function KioskPage() {
-  const store = await cookies();
-  store.set("kiosk_auth", (await newKioskCookie()).value, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-  });
-
+export default function KioskPage() {
   return (
-    <main className="flex-1 flex flex-col items-center justify-center bg-slate-950 p-6">
+    <main className="flex flex-1 flex-col items-center justify-center p-6">
       <KioskDisplay />
     </main>
   );

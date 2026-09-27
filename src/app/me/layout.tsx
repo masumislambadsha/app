@@ -1,5 +1,13 @@
-import { MeShell } from "@/components/ui";
+import { redirect } from "next/navigation";
+import { currentSession } from "@/auth";
+import { DashboardShell } from "@/components/dashboard-shell";
 
-export default function MeLayout({ children }: { children: React.ReactNode }) {
-  return <MeShell>{children}</MeShell>;
+export default async function MeLayout({ children }: { children: React.ReactNode }) {
+  const session = await currentSession();
+  if (!session) redirect("/login");
+  return (
+    <DashboardShell variant="employee" user={session.user}>
+      {children}
+    </DashboardShell>
+  );
 }

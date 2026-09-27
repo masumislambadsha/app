@@ -1,22 +1,28 @@
+import { randomBytes } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import { emailOTP } from "better-auth/plugins/email-otp";
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { getDb, getMongoClient } from "@/lib/mongo";
-import { sendOtpCode } from "@/lib/email";
 import { roleForEmail } from "@/attend/roles";
 import type { Role } from "@/attend/types";
 
 let _auth: ReturnType<typeof createAuth> | null = null;
+
+const hasGoogle = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
 function createAuth() {
   return betterAuth({
     database: mongodbAdapter(getDb(), { client: getMongoClient(), transaction: false }),
     baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
     secret: process.env.BETTER_AUTH_SECRET,
-    emailVerification: {
-      autoSignInAfterVerification: true,
-      sendOnSignUp: true,
+    advanced: {
+      database: {
+        generateId: () => randomBytes(12).toString("hex"),
+      },
+    },
+    emailAndPassword: {
+      enabled: true,
     },
     user: {
       additionalFields: {
@@ -28,26 +34,16 @@ function createAuth() {
         },
       },
     },
-    plugins: [
-      emailOTP({
-        otpLength: 6,
-        expiresIn: 300,
-        resendStrategy: "reuse",
-        rateLimit: { window: 60, max: 5 },
-        sendVerificationOTP: async ({ email, otp }) => {
-          await sendOtpCode(email, otp);
-        },
-        generateOTP: ({ email }) => {
-          // Dev convenience: a stable 6-digit code derived from the email so
-          // the flow can be exercised without reading logs. Never enabled in prod.
-          if (process.env.NODE_ENV !== "production") {
-            const hash = [...email].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 1000000, 7);
-            return String(hash).padStart(6, "0");
-          }
-          return undefined;
-        },
-      }),
-    ],
+    ...(hasGoogle
+      ? {
+          socialProviders: {
+            google: {
+              clientId: process.env.GOOGLE_CLIENT_ID!,
+              clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            },
+          },
+        }
+      : {}),
   });
 }
 
@@ -80,12 +76,13 @@ export async function currentSession() {
 
 export async function requireEmployee(): Promise<AuthUser> {
   const s = await currentSession();
-  if (!s || !s.user.role) throw new Error("auth:not-allowed");
+  if (!s) redirect("/login");
   return s.user;
 }
 
 export async function requireAdmin(): Promise<AuthUser> {
   const s = await currentSession();
-  if (!s || s.user.role !== "admin") throw new Error("auth:admin-only");
+  if (!s) redirect("/login");
+  if (s.user.role !== "admin") redirect("/me");
   return s.user;
 }

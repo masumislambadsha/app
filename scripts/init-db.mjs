@@ -65,10 +65,68 @@ async function seedConfig() {
   }
 
   const shiftColl = db.collection("shifts");
+  // Fresh install: seed the standard day + night shifts.
   if ((await shiftColl.countDocuments({})) === 0) {
+    await shiftColl.insertMany([
+      {
+        _id: "day_shift",
+        name: "Day Shift",
+        start_time: "09:00",
+        end_time: "18:00",
+        grace_min: 10,
+        half_day_after_min: 60,
+        early_exit_min: 60,
+        created_at: new Date(),
+      },
+      {
+        _id: "night_shift",
+        name: "Night Shift",
+        start_time: "22:00",
+        end_time: "06:00",
+        grace_min: 10,
+        half_day_after_min: 60,
+        early_exit_min: 60,
+        created_at: new Date(),
+      },
+    ]);
+    console.log("seeded default shifts 'day_shift' (09:00-18:00) + 'night_shift' (22:00-06:00)");
+  }
+
+  // Upgrade path: the old default was the 'general' shift — rename it to
+  // 'day_shift' and repoint anything that referenced it.
+  const oldGeneral = await shiftColl.findOne({ _id: "general" });
+  if (oldGeneral) {
+    const generalFields = { ...oldGeneral };
+    delete generalFields._id;
+    await shiftColl.updateOne(
+      { _id: "day_shift" },
+      { $set: { ...generalFields, name: "Day Shift" } },
+      { upsert: true },
+    );
+    await db.collection("employees").updateMany({ shift_id: "general" }, { $set: { shift_id: "day_shift" } });
+    await db.collection("shift_overrides").updateMany({ shift_id: "general" }, { $set: { shift_id: "day_shift" } });
+    await shiftColl.deleteOne({ _id: "general" });
+    console.log("migrated legacy shift 'general' -> 'day_shift'");
+  }
+
+  // Back-fill the night shift on upgraded databases.
+  if (!(await shiftColl.findOne({ _id: "night_shift" }))) {
     await shiftColl.insertOne({
-      _id: "general",
-      name: "General",
+      _id: "night_shift",
+      name: "Night Shift",
+      start_time: "22:00",
+      end_time: "06:00",
+      grace_min: 10,
+      half_day_after_min: 60,
+      early_exit_min: 60,
+      created_at: new Date(),
+    });
+    console.log("seeded 'night_shift' (22:00-06:00)");
+  }
+  if (!(await shiftColl.findOne({ _id: "day_shift" }))) {
+    await shiftColl.insertOne({
+      _id: "day_shift",
+      name: "Day Shift",
       start_time: "09:00",
       end_time: "18:00",
       grace_min: 10,
@@ -76,7 +134,7 @@ async function seedConfig() {
       early_exit_min: 60,
       created_at: new Date(),
     });
-    console.log("seeded default shift 'general' (09:00-18:00)");
+    console.log("seeded 'day_shift' (09:00-18:00)");
   }
 
   if (adminEmail) {
@@ -87,7 +145,7 @@ async function seedConfig() {
       await emps.insertOne({
         name: process.env.ADMIN_NAME || "Owner",
         email: adminEmail,
-        shift_id: shift ? shift._id : "general",
+        shift_id: shift ? shift._id : "day_shift",
         weekly_off: [5, 6],
         joined_at: new Date().toISOString().slice(0, 10),
         active: true,

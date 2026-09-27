@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Html5Qrcode } from "html5-qrcode";
+import { cn } from "cn";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { TriangleAlert, CameraOff } from "lucide-react";
 
 const DEVICE_KEY = "att.deviceId";
 const TOKEN_KEY = "att.deviceToken";
@@ -23,9 +27,25 @@ export default function ScanPage() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locNote, setLocNote] = useState<string | null>(null);
   const scanner = useRef<Html5Qrcode | null>(null);
   const tokenRef = useRef<string | null>(null);
   const stopRef = useRef(false);
+  const seenRef = useRef<Set<string>>(new Set());
+
+  const getPosition = useCallback((): Promise<{ lat: number; lng: number; accuracy: number } | null> => {
+    return new Promise((resolve) => {
+      if (typeof navigator === "undefined" || !navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
+        () => resolve(null),
+        { timeout: 10_000, maximumAge: 60_000 },
+      );
+    });
+  }, []);
 
   const ensureDevice = useCallback(async () => {
     let deviceId = localStorage.getItem(DEVICE_KEY);
@@ -55,38 +75,65 @@ export default function ScanPage() {
   }, []);
 
   useEffect(() => {
+    // Intentional: register this install's device id once on mount.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void ensureDevice();
   }, [ensureDevice]);
 
+  const stopScanner = useCallback(async () => {
+    stopRef.current = true;
+    if (scanner.current && scanner.current.isScanning) {
+      await scanner.current.stop().catch(() => undefined);
+    }
+  }, []);
+
   const handleToken = useCallback(
     async (token: string) => {
-      if (busy || stopRef.current) return;
+      // Ref-based guard: the scanner callback holds a stale closure, so the
+      // `busy` state check never fires and every frame re-sends the same token.
+      if (stopRef.current || seenRef.current.has(token)) return;
+      seenRef.current.add(token);
       setBusy(true);
       setScanError(null);
+      setLocNote("Getting your location…");
       try {
+        const pos = await getPosition();
+        const payload: Record<string, unknown> = { token, device_token: tokenRef.current };
+        if (pos) {
+          payload.lat = pos.lat;
+          payload.lng = pos.lng;
+          payload.accuracy = pos.accuracy;
+          setLocNote("Location attached to this scan.");
+        } else {
+          setLocNote("Location unavailable — scan may be rejected outside the office.");
+        }
         const res = await fetch("/api/check-in", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token, device_token: tokenRef.current }),
+          body: JSON.stringify(payload),
         });
         const body = (await res.json()) as ScanResult & { error?: string; code?: string };
         if (!res.ok || !body.message) {
           throw new Error(body.error ?? "check-in failed");
         }
         setResult(body);
+        // Halt the camera so it stops re-reading the same (now consumed) QR.
+        void stopScanner();
       } catch (e) {
         setScanError(e instanceof Error ? e.message : "check-in failed");
       } finally {
         setBusy(false);
       }
     },
-    [busy],
+    [getPosition, stopScanner],
   );
 
   const startScanner = useCallback(async () => {
     stopRef.current = false;
+    seenRef.current.clear();
     setResult(null);
     setScanError(null);
+    setLocNote(null);
     if (!scanner.current) {
       scanner.current = new Html5Qrcode(READER_ID);
     }
@@ -102,21 +149,14 @@ export default function ScanPage() {
     }
   }, [handleToken]);
 
-  const stopScanner = useCallback(async () => {
-    stopRef.current = true;
-    if (scanner.current && scanner.current.isScanning) {
-      await scanner.current.stop().catch(() => undefined);
-    }
-  }, []);
-
   useEffect(() => () => void stopScanner(), [stopScanner]);
 
   return (
-    <main className="flex-1 flex flex-col items-center bg-slate-950 p-4">
+    <main className="flex flex-1 flex-col items-center p-4">
       <header className="mb-4 flex w-full max-w-md items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Scan the kiosk QR</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="font-serif text-xl font-bold tracking-tight text-[#1a1a1a]">Scan the kiosk QR</h1>
+          <p className="text-sm text-muted-foreground">
             {deviceState === "approved"
               ? "Device ready — scan the rotating QR at the entrance."
               : deviceState === "pending"
@@ -129,44 +169,55 @@ export default function ScanPage() {
       </header>
 
       {deviceState === "revoked" && (
-        <div className="mb-3 w-full max-w-md rounded-md bg-rose-900/40 px-3 py-2 text-sm text-rose-300">
-          This device was revoked. Refresh the page to re-register; an admin must approve it again.
-        </div>
+        <Alert variant="destructive" className="mb-3 w-full max-w-md">
+          <CameraOff />
+          <AlertDescription>
+            This device was revoked. Refresh the page to re-register; an admin must approve it again.
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="w-full max-w-md">
-        <div id={READER_ID} className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900" />
+        <div
+          id={READER_ID}
+          className="overflow-hidden rounded-[2rem] border border-warm-100 bg-white shadow-[0_1px_2px_rgba(42,38,34,0.05)]"
+        />
 
         <div className="mt-3 flex justify-center">
-          <button
+          <Button
             type="button"
             disabled={deviceState !== "approved" || busy}
-            onClick={() => {
-              if (result) void startScanner();
-              else void startScanner();
-            }}
-            className="rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-40"
+            onClick={() => void startScanner()}
           >
             {busy ? "Recording…" : result ? "Scan again" : "Start camera"}
-          </button>
+          </Button>
         </div>
 
         {result && (
           <div
-            className={`mt-4 rounded-xl border p-4 text-center ${
-              result.kind === "in" ? "border-emerald-700 bg-emerald-900/30" : "border-sky-700 bg-sky-900/30"
-            }`}
+            className={cn(
+              "mt-4 rounded-[2rem] border border-warm-100 bg-white p-6 text-center shadow-[0_1px_2px_rgba(42,38,34,0.05)]",
+            )}
           >
-            <p className="text-2xl font-semibold">{result.kind === "in" ? "Checked in" : "Checked out"}</p>
-            <p className="mt-1 text-sm text-slate-300">{result.message}</p>
-            <p className="mt-1 text-xs text-slate-400">
+            <p className={cn("font-serif text-2xl font-bold", result.kind === "in" ? "text-emerald-700" : "text-sky-700")}>
+              {result.kind === "in" ? "Checked in" : "Checked out"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">{result.message}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
               {result.date} at {new Date(result.checkedAt).toLocaleTimeString("en-GB", { timeZone: "Asia/Dhaka" })} ·
               status: {result.status}
             </p>
           </div>
         )}
-        {scanError && <p className="mt-3 text-center text-sm text-rose-400">{scanError}</p>}
-        {deviceError && <p className="mt-3 text-center text-sm text-rose-400">{deviceError}</p>}
+        {locNote && !result && (
+          <p className="mt-3 text-center text-xs text-muted-foreground">{locNote}</p>
+        )}
+        {(scanError || deviceError) && (
+          <p className="mt-3 flex items-center justify-center gap-1.5 text-center text-sm font-medium text-red-600">
+            <TriangleAlert className="size-4" />
+            {scanError ?? deviceError}
+          </p>
+        )}
       </div>
     </main>
   );

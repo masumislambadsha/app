@@ -1,11 +1,20 @@
 import { collections } from "@/lib/mongo";
 import { setDeviceStatus } from "@/actions/admin";
 import { ErrorBanner } from "@/components/ui";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Devices" };
 
 type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
+
+const STATUS_STYLES: Record<string, string> = {
+  approved: "bg-emerald-50 text-emerald-700",
+  pending: "bg-amber-50 text-amber-700",
+  revoked: "bg-red-50 text-red-700",
+};
 
 export default async function AdminDevicesPage({ searchParams }: Props) {
   const query = await searchParams;
@@ -16,71 +25,78 @@ export default async function AdminDevicesPage({ searchParams }: Props) {
 
   return (
     <div>
-      <h1 className="text-xl font-semibold">Devices</h1>
+      <h1 className="font-serif text-2xl font-bold tracking-tight text-[#1a1a1a] sm:text-3xl">Devices</h1>
       <ErrorBanner message={error} />
-      <p className="mt-1 text-sm text-slate-400">
-        One device per install. A new device is <span className="text-amber-300">pending</span> until you approve it —
+      <p className="mt-1 text-sm text-muted-foreground">
+        One device per install. A new device is{" "}
+        <span className="font-semibold text-amber-700">pending</span> until you approve it —
         only approved devices can check in. Revoking a phone forces re-approval.
       </p>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase text-slate-400">
-            <tr className="border-b border-slate-800">
-              <th className="px-4 py-2">Employee</th>
-              <th className="px-4 py-2">Token (short)</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Registered</th>
-              <th className="px-4 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {devices.map((d) => (
-              <tr key={d._id.toString()} className="border-b border-slate-800/60 last:border-0">
-                <td className="px-4 py-2 font-medium">{nameOf.get(d.employee_id.toString()) ?? "—"}</td>
-                <td className="px-4 py-2 font-mono text-xs text-slate-400">{d.device_token.slice(0, 12)}…</td>
-                <td className="px-4 py-2">
-                  <span
-                    className={`rounded px-2 py-0.5 text-xs ${
-                      d.status === "approved"
-                        ? "bg-emerald-500/15 text-emerald-300"
-                        : d.status === "pending"
-                          ? "bg-amber-500/15 text-amber-300"
-                          : "bg-rose-500/15 text-rose-300"
-                    }`}
-                  >
-                    {d.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2 text-slate-400">{d.created_at.toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}</td>
-                <td className="px-4 py-2">
-                  {d.status !== "approved" && (
-                    <form action={setDeviceStatus} className="inline">
-                      <input type="hidden" name="id" value={d._id.toString()} />
-                      <input type="hidden" name="status" value="approved" />
-                      <button className="mr-3 text-emerald-400 hover:underline">Approve</button>
-                    </form>
-                  )}
-                  {d.status !== "revoked" && (
-                    <form action={setDeviceStatus} className="inline">
-                      <input type="hidden" name="id" value={d._id.toString()} />
-                      <input type="hidden" name="status" value="revoked" />
-                      <button className="text-rose-400 hover:underline">Revoke</button>
-                    </form>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {devices.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-6 text-center text-slate-500">
-                  No devices yet — they appear when someone scans on a new phone.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <Card className="mt-4">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Employee</TableHead>
+                <TableHead>Token (short)</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Registered</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {devices.map((d) => (
+                <TableRow key={d._id.toString()}>
+                  <TableCell className="font-medium">{nameOf.get(d.employee_id.toString()) ?? "—"}</TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">
+                    {d.device_token.slice(0, 12)}…
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        STATUS_STYLES[d.status]
+                      }`}
+                    >
+                      {d.status}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {d.created_at.toLocaleString("en-GB", { timeZone: "Asia/Dhaka" })}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {d.status !== "approved" && (
+                      <form action={setDeviceStatus} className="inline">
+                        <input type="hidden" name="id" value={d._id.toString()} />
+                        <input type="hidden" name="status" value="approved" />
+                        <Button type="submit" variant="ghost" size="sm" className="mr-1 font-semibold text-emerald-700">
+                          Approve
+                        </Button>
+                      </form>
+                    )}
+                    {d.status !== "revoked" && (
+                      <form action={setDeviceStatus} className="inline">
+                        <input type="hidden" name="id" value={d._id.toString()} />
+                        <input type="hidden" name="status" value="revoked" />
+                        <Button type="submit" variant="ghost" size="sm" className="text-destructive">
+                          Revoke
+                        </Button>
+                      </form>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+              {devices.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-6 text-center text-muted-foreground">
+                    No devices yet — they appear when someone scans on a new phone.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </Card>
     </div>
   );
 }

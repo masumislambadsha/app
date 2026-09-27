@@ -100,6 +100,17 @@ export function weekdayOf(dateKey: string): number {
   return new Date(Date.parse(`${dateKey}T00:00:00Z`)).getUTCDay();
 }
 
+/**
+ * Working-date key a scan instant belongs to: the Dhaka date whose shift the
+ * scan counts against. For overnight shifts, scans before shift start (the
+ * following morning, e.g. a 06:00 checkout) belong to the previous day.
+ */
+export function workingDateForScan(startMin: number, overnight: boolean, ts: Date): string {
+  const date = dateKeyInZone(ts, TZ);
+  if (overnight && minutesOfDay(ts, TZ) < startMin) return addDays(date, -1);
+  return date;
+}
+
 /** All yyyy-MM-dd keys in [from, to] inclusive. */
 export function rangeKeys(from: string, to: string): string[] {
   const out: string[] = [];
